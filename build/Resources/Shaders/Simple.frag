@@ -2,9 +2,11 @@
 
 layout (location = 0) out vec4 out_color;
 
-layout (location = 0) in vec3 vColor;
+layout (location = 0) in vec2 vUV;
+
+layout (location = 0) uniform sampler2D uTexture;
 
 void main()
 {
-    out_color = vec4(vColor, 1.0);
+    out_color = texture(uTexture, vUV);
 }

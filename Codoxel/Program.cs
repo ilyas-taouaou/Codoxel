@@ -1,5 +1,4 @@
 ﻿using System.Diagnostics;
-using System.Drawing;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using MoreLinq.Extensions;
@@ -7,21 +6,27 @@ using Silk.NET.Input;
 using Silk.NET.OpenGL;
 using Silk.NET.Windowing;
 using Silk.NET.Windowing.Extensions;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 using Buffer = Silk.NET.OpenGL.Buffer;
+using Color = System.Drawing.Color;
+using Point = System.Drawing.Point;
 using ShaderProgram = Silk.NET.OpenGL.Program;
+using Size = System.Drawing.Size;
 
 const int windowCount = 1;
 const int multiSampleCount = 4;
 
 const string resourcesDirectory = "Resources";
 var shadersDirectory = Path.Combine(resourcesDirectory, "Shaders");
+var imagesDirectory = Path.Combine(resourcesDirectory, "Images");
 
 Vertex[] vertices =
 [
-    new Vertex(new Vector3(0.5f, 0.5f, 0.0f), Color.Red),
-    new Vertex(new Vector3(0.0f, -0.5f, 0.0f), Color.Green),
-    new Vertex(new Vector3(-0.5f, -0.5f, 0.0f), Color.Blue),
-    new Vertex(new Vector3(-0.5f, 0.5f, 0.0f), Color.White)
+    new Vertex(new Vector3(0.5f, 0.5f, 0.0f), new Vector2(1f, 1f)),
+    new Vertex(new Vector3(0.5f, -0.5f, 0.0f), new Vector2(1f, 0f)),
+    new Vertex(new Vector3(-0.5f, -0.5f, 0.0f), new Vector2(0f, 0f)),
+    new Vertex(new Vector3(-0.5f, 0.5f, 0.0f), new Vector2(0f, 1f))
 ];
 
 uint[] indices =
@@ -72,6 +77,32 @@ windowManager.Windows.ForEach(window => window.Load += () =>
         }
     }
 
+    var texture = new Texture(gl.CreateTexture(GLEnum.Texture2D));
+    gl.TextureParameterI(texture.Handle, TextureParameterName.TextureWrapS, new[] { (int)GLEnum.ClampToEdge });
+    gl.TextureParameterI(texture.Handle, TextureParameterName.TextureWrapT, new[] { (int)GLEnum.ClampToEdge });
+    gl.TextureParameterI(texture.Handle, TextureParameterName.TextureMinFilter,
+        new[] { (int)GLEnum.LinearMipmapLinear });
+    gl.TextureParameterI(texture.Handle, TextureParameterName.TextureMagFilter, new[] { (int)GLEnum.Linear });
+
+
+    using (var image = Image.Load<Rgba32>(Path.Combine(imagesDirectory, "WoodenContainer.jpg")))
+    {
+        var width = (uint)image.Width;
+        var height = (uint)image.Height;
+        gl.TextureStorage2D(texture.Handle, 1, SizedInternalFormat.Rgba8, width, height);
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var pixelRow = accessor.GetRowSpan(y);
+                gl.TextureSubImage2D<Rgba32>(texture.Handle, 0, 0, y, width, 1, PixelFormat.Rgba,
+                    PixelType.UnsignedByte, pixelRow);
+            }
+        });
+    }
+
+    gl.GenerateTextureMipmap(texture.Handle);
+
     // Shaders
     var vertexShaderBinary = File.ReadAllBytes(Path.Combine(shadersDirectory, "Simple.vert.spv"));
     var fragmentShaderBinary = File.ReadAllBytes(Path.Combine(shadersDirectory, "Simple.frag.spv"));
@@ -104,13 +135,14 @@ windowManager.Windows.ForEach(window => window.Load += () =>
     gl.VertexArrayAttribBinding(vertexArray.Handle, 0, 0);
 
     gl.EnableVertexArrayAttrib(vertexArray.Handle, 1);
-    gl.VertexArrayAttribFormat(vertexArray.Handle, 1, 3, GLEnum.Float, false, (uint)Marshal.OffsetOf<Vertex>("_color"));
+    gl.VertexArrayAttribFormat(vertexArray.Handle, 1, 2, GLEnum.Float, false, (uint)Marshal.OffsetOf<Vertex>("_uv"));
     gl.VertexArrayAttribBinding(vertexArray.Handle, 1, 0);
 
     // Initialization
     gl.BindVertexArray(vertexArray.Handle);
     gl.BindProgramPipeline(pipeline.Handle);
     gl.ClearColor(Color.CornflowerBlue);
+    gl.BindTextureUnit(0, texture.Handle);
 
     window.Render += _ =>
     {
@@ -143,11 +175,11 @@ ShaderProgram CreateShader(GL gl, ShaderType shaderType, ReadOnlySpan<byte> bina
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
-internal struct Vertex(Vector3 position, Color color)
+internal struct Vertex(Vector3 position, Vector2 uv)
 {
     // ReSharper disable once UnusedMember.Local
     private Vector3 _position = position;
-    private Vector3 _color = new Vector3(color.R, color.G, color.B) / 255f;
+    private Vector2 _uv = uv;
 }
 
 internal static class ArrayExtensions
