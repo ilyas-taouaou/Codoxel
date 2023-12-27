@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using MoreLinq.Extensions;
@@ -57,7 +56,20 @@ class Build : NukeBuild
                         (nuint)shaderSourceCode.Length, shaderKind,
                         shaderPath,
                         "main", compilerOptions);
-                    Debug.Assert(shaderc.ResultGetCompilationStatus(compilationResult) == CompilationStatus.Success);
+                    var compilationStatus = shaderc.ResultGetCompilationStatus(compilationResult);
+                    switch (compilationStatus)
+                    {
+                        case CompilationStatus.Success:
+
+                            break;
+                        default:
+                            // write to stderr
+                            Console.Error.WriteLine(
+                                $"{compilationStatus}:\n{shaderc.ResultGetErrorMessageS(compilationResult)}");
+                            Environment.Exit(1);
+                            break;
+                    }
+
                     var shaderBinary = shaderc.ResultGetBytes(compilationResult);
                     var shaderBinarySize = (int)shaderc.ResultGetLength(compilationResult);
                     var byteArray = new byte[shaderBinarySize];
