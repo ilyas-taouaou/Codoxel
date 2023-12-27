@@ -22,25 +22,12 @@ const int multiSampleCount = 4;
 const float fieldOfView = 70 * deg2Rad;
 const float nearPlane = 0.1f;
 const float farPlane = 100f;
-const float cameraDistance = 1f;
+const float cameraDistance = 3f;
 
 const string resourcesDirectory = "Resources";
 var shadersDirectory = Path.Combine(resourcesDirectory, "Shaders");
 var imagesDirectory = Path.Combine(resourcesDirectory, "Images");
-
-Vertex[] vertices =
-[
-    new Vertex(new Vector3(0.5f, 0.5f, 0.0f), new Vector2(1f, 1f)),
-    new Vertex(new Vector3(0.5f, -0.5f, 0.0f), new Vector2(1f, 0f)),
-    new Vertex(new Vector3(-0.5f, -0.5f, 0.0f), new Vector2(0f, 0f)),
-    new Vertex(new Vector3(-0.5f, 0.5f, 0.0f), new Vector2(0f, 1f))
-];
-
-uint[] indices =
-[
-    0u, 1u, 3u,
-    1u, 2u, 3u
-];
+var modelsDirectory = Path.Combine(resourcesDirectory, "Models");
 
 var windowManager = new WindowManager();
 Enumerable.Range(0, windowCount).ForEach(_ => windowManager.CreateWindow(WindowOptions.Default with
@@ -50,7 +37,8 @@ Enumerable.Range(0, windowCount).ForEach(_ => windowManager.CreateWindow(WindowO
         Version = new APIVersion(4, 6),
         Flags = Debugger.IsAttached ? ContextFlags.Debug : ContextFlags.Default
     },
-    Samples = multiSampleCount
+    Samples = multiSampleCount,
+    PreferredDepthBufferBits = 24,
 }));
 
 windowManager.Windows.ForEach(window => window.Load += () =>
@@ -84,6 +72,34 @@ windowManager.Windows.ForEach(window => window.Load += () =>
         }
     }
 
+    var positions = new List<Vector3>();
+    var uvs = new List<Vector2>();
+    var vertices = new List<Vertex>();
+
+    File.ReadLines(Path.Combine(modelsDirectory, "Cube.obj"))
+        .Select(line => line.Split()).ForEach(tokens =>
+        {
+            switch (tokens[0])
+            {
+                case "v":
+                    positions.Add(new Vector3(float.Parse(tokens[1]), float.Parse(tokens[2]), float.Parse(tokens[3])));
+                    break;
+                case "vt":
+                    uvs.Add(new Vector2(float.Parse(tokens[1]), float.Parse(tokens[2])));
+                    break;
+                case "f":
+                    var face = tokens[1..].Select(token => token.Split('/').Select(int.Parse).ToArray());
+                    face.ForEach((indices, _) =>
+                    {
+                        vertices.Add(new Vertex(positions[indices[0] -1 ], uvs[indices[1] - 1]));
+                    });
+                    break;
+            }
+        });
+
+    var indices = new List<uint>();
+    vertices.ForEach((_, index) => indices.Add((uint)index));
+
     var texture = new Texture(gl.CreateTexture(GLEnum.Texture2D));
     gl.TextureParameterI(texture.Handle, TextureParameterName.TextureWrapS, new[] { (int)GLEnum.ClampToEdge });
     gl.TextureParameterI(texture.Handle, TextureParameterName.TextureWrapT, new[] { (int)GLEnum.ClampToEdge });
@@ -91,7 +107,7 @@ windowManager.Windows.ForEach(window => window.Load += () =>
         new[] { (int)GLEnum.LinearMipmapLinear });
     gl.TextureParameterI(texture.Handle, TextureParameterName.TextureMagFilter, new[] { (int)GLEnum.Linear });
 
-    using (var image = Image.Load<Rgba32>(Path.Combine(imagesDirectory, "WoodenContainer.jpg")))
+    using (var image = Image.Load<Rgba32>(Path.Combine(imagesDirectory, "BrickAlbedo.png")))
     {
         var width = (uint)image.Width;
         var height = (uint)image.Height;
@@ -145,6 +161,7 @@ windowManager.Windows.ForEach(window => window.Load += () =>
     gl.VertexArrayAttribBinding(vertexArray.Handle, 1, 0);
 
     // Initialization
+    gl.Enable(EnableCap.DepthTest);
     gl.ClearColor(Color.CornflowerBlue);
     gl.Viewport(Point.Empty, new Size(window.Size.X, window.Size.Y));
     gl.BindVertexArray(vertexArray.Handle);
@@ -162,14 +179,15 @@ windowManager.Windows.ForEach(window => window.Load += () =>
 
     window.Render += _ =>
     {
-        gl.Clear(ClearBufferMask.ColorBufferBit);
-        var model = Matrix4x4.CreateRotationZ((float)window.Time);
+        gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+        var model = Matrix4x4.CreateRotationZ((float)window.Time) * Matrix4x4.CreateRotationX((float)window.Time) *
+                    Matrix4x4.CreateRotationY((float)window.Time);
         gl.ProgramUniformMatrix4(vertexShaderProgram.Handle, 2, false,
             MemoryMarshal.CreateReadOnlySpan(ref model.M11, 16));
-        gl.ProgramUniform1(vertexShaderProgram.Handle, 3, window.Time);
+        // gl.ProgramUniform1(vertexShaderProgram.Handle, 3, (float)window.Time);
         unsafe
         {
-            gl.DrawElements(PrimitiveType.Triangles, (uint)indices.Length, DrawElementsType.UnsignedInt, (void*)0);
+            gl.DrawElements(PrimitiveType.Triangles, (uint)indices.Count, DrawElementsType.UnsignedInt, (void*)0);
         }
     };
     window.FramebufferResize += size =>
@@ -202,7 +220,7 @@ ShaderProgram CreateShader(GL gl, ShaderType shaderType, ReadOnlySpan<byte> bina
 internal struct Vertex(Vector3 position, Vector2 uv)
 {
     // ReSharper disable once UnusedMember.Local
-    private Vector3 _position = position;
+    public Vector3 _position = position;
     private Vector2 _uv = uv;
 }
 
@@ -211,5 +229,13 @@ internal static class ArrayExtensions
     public static ReadOnlySpan<T> AsReadOnlySpan<T>(this T[] self)
     {
         return self.AsSpan();
+    }
+}
+
+internal static class ListExtensions
+{
+    public static ReadOnlySpan<T> AsReadOnlySpan<T>(this List<T> self)
+    {
+        return CollectionsMarshal.AsSpan(self);
     }
 }
