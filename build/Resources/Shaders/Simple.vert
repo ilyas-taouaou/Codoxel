@@ -12,10 +12,14 @@ layout (location = 1) in vec2 aUV;
 
 layout (location = 0) out vec2 vUV;
 
-layout (location = 0) uniform float uTime;
+layout (location = 0) uniform mat4 uProjection;
+layout (location = 1) uniform mat4 uView;
+layout (location = 2) uniform mat4 uModel;
+
+layout (location = 3) uniform float uTime;
 
 void main()
 {
     vUV = aUV;
-    gl_Position = vec4(aPosition * uTime, 1.0);
+    gl_Position = uProjection * uView * uModel * vec4(aPosition, 1.0);
 }

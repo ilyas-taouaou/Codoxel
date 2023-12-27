@@ -14,8 +14,15 @@ using Point = System.Drawing.Point;
 using ShaderProgram = Silk.NET.OpenGL.Program;
 using Size = System.Drawing.Size;
 
+const float deg2Rad = MathF.PI / 180;
+
 const int windowCount = 1;
 const int multiSampleCount = 4;
+
+const float fieldOfView = 70 * deg2Rad;
+const float nearPlane = 0.1f;
+const float farPlane = 100f;
+const float cameraDistance = 1f;
 
 const string resourcesDirectory = "Resources";
 var shadersDirectory = Path.Combine(resourcesDirectory, "Shaders");
@@ -84,7 +91,6 @@ windowManager.Windows.ForEach(window => window.Load += () =>
         new[] { (int)GLEnum.LinearMipmapLinear });
     gl.TextureParameterI(texture.Handle, TextureParameterName.TextureMagFilter, new[] { (int)GLEnum.Linear });
 
-
     using (var image = Image.Load<Rgba32>(Path.Combine(imagesDirectory, "WoodenContainer.jpg")))
     {
         var width = (uint)image.Width;
@@ -139,22 +145,40 @@ windowManager.Windows.ForEach(window => window.Load += () =>
     gl.VertexArrayAttribBinding(vertexArray.Handle, 1, 0);
 
     // Initialization
+    gl.ClearColor(Color.CornflowerBlue);
+    gl.Viewport(Point.Empty, new Size(window.Size.X, window.Size.Y));
     gl.BindVertexArray(vertexArray.Handle);
     gl.BindProgramPipeline(pipeline.Handle);
-    gl.ClearColor(Color.CornflowerBlue);
     gl.BindTextureUnit(0, texture.Handle);
+
+    var projection =
+        Matrix4x4.CreatePerspectiveFieldOfView(fieldOfView, (float)window.Size.X / window.Size.Y, nearPlane, farPlane);
+    var view = Matrix4x4.CreateTranslation(0f, 0f, -cameraDistance);
+
+    gl.ProgramUniformMatrix4(vertexShaderProgram.Handle, 0, false,
+        MemoryMarshal.CreateReadOnlySpan(ref projection.M11, 16));
+    gl.ProgramUniformMatrix4(vertexShaderProgram.Handle, 1, false,
+        MemoryMarshal.CreateReadOnlySpan(ref view.M11, 16));
 
     window.Render += _ =>
     {
         gl.Clear(ClearBufferMask.ColorBufferBit);
+        var model = Matrix4x4.CreateRotationZ((float)window.Time);
+        gl.ProgramUniformMatrix4(vertexShaderProgram.Handle, 2, false,
+            MemoryMarshal.CreateReadOnlySpan(ref model.M11, 16));
+        gl.ProgramUniform1(vertexShaderProgram.Handle, 3, window.Time);
         unsafe
         {
-            gl.ProgramUniform1(vertexShaderProgram.Handle, 0,
-                (float)Math.Sin(window.Time));
             gl.DrawElements(PrimitiveType.Triangles, (uint)indices.Length, DrawElementsType.UnsignedInt, (void*)0);
         }
     };
-    window.FramebufferResize += size => gl.Viewport(Point.Empty, new Size(size.X, size.Y));
+    window.FramebufferResize += size =>
+    {
+        gl.Viewport(Point.Empty, new Size(size.X, size.Y));
+        projection = Matrix4x4.CreatePerspectiveFieldOfView(fieldOfView, (float)size.X / size.Y, nearPlane, farPlane);
+        gl.ProgramUniformMatrix4(vertexShaderProgram.Handle, 0, false,
+            MemoryMarshal.CreateReadOnlySpan(ref projection.M11, 16));
+    };
 });
 
 windowManager.Run();
